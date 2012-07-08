@@ -1,0 +1,827 @@
+/* -*- c++ -*-
+ *
+ * Copyright (C) 2007 ArchiVideo
+ *
+ *		   GNU LESSER GENERAL PUBLIC LICENSE
+ *                      Version 3, 29 June 2007
+ *
+ * Copyright (C) 2007 Free Software Foundation, Inc. <http://fsf.org/>
+ * Everyone is permitted to copy and distribute verbatim copies
+ * of this license document, but changing it is not allowed.
+ *
+ *
+ *  This version of the GNU Lesser General Public License incorporates
+ * the terms and conditions of version 3 of the GNU General Public
+ * License, supplemented by the additional permissions listed below.
+ *
+ * Authors:
+ *  Cedric Pinson <mornifle@plopbyte.net>
+ */
+
+#ifndef PROJECTOR_VISITOR_H
+#define PROJECTOR_VISITOR_H
+
+#include <iostream>
+#include <osg/NodeVisitor>
+#include <osg/TriangleFunctor>
+#include <osg/Shape>
+#include <osg/io_utils>
+#include <sstream>
+#include <osg/Timer>
+#include <osg/Geometry>
+#include <osg/Material>
+#include <osgDB/WriteFile>
+#include <cstdlib>
+#include <cassert>
+#include <algorithm>
+#include <osgUtil/SmoothingVisitor>
+
+
+void intersectGridLinesFromSegment(const osg::Vec2d& s0, const osg::Vec2d& s1, std::vector<osg::Vec2d>& list);
+
+
+struct GetBlocksTouchedByLine
+{
+  struct Entry {
+    int _min;
+    int _max;
+    Entry() : _min(INT_MAX), _max(-INT_MAX) {}
+    void expandBy(int v) {
+      if (v > _max) _max = v;
+      if (v < _min) _min = v;
+    }
+    bool isValid() const { return (_min != INT_MAX);}
+  };
+
+  std::map<int,Entry> _result;
+  osg::ref_ptr<osg::HeightField> _heightField;
+  GetBlocksTouchedByLine(osg::HeightField* heightField) : _heightField(heightField) {}
+
+  void operator() (const osg::Vec2d& start, const osg::Vec2d& end) {
+    if (start[1] > end[1])
+      *((int*)0) = 0;
+    assert(start[1] <= end[1] && "should be sorted");
+    std::vector<osg::Vec2d> result;
+
+    intersectGridLinesFromSegment(start, end, result);
+    result.insert(result.begin(), start);
+    result.push_back(end);
+    bool xDirPositive = (end[0]-start[0] >= 0 ) ? true: false;
+    for (int i = 0; i < result.size(); i++) {
+      int y = static_cast<int>(floor(result[i][1]));
+      int x;
+      if (xDirPositive) {
+        x = static_cast<int>(floor(result[i][0]));
+      } else {
+        x = static_cast<int>(ceil(result[i][0]))-1;
+      }
+      if (x < 0)
+        x = 0;
+      else if (x > _heightField->getNumColumns()-2)
+        x = _heightField->getNumColumns()-2;
+      
+      _result[y].expandBy(x);
+    }
+  }
+};
+
+struct Triangle2HeightField
+{
+  osg::ref_ptr<osg::HeightField> _heightField;
+  osg::ref_ptr<osg::Geometry> _result;
+  osg::ref_ptr<osg::Vec3Array> _vertexArray;
+  std::map<int, int> _processed;
+  osg::Vec3 _v1;
+  osg::Vec3 _v2;
+  osg::Vec3 _v3;
+  int _insert;
+  int _found;
+
+  Triangle2HeightField(osg::HeightField* hf) : _heightField(hf), _insert(0), _found(0)  {}
+  void operator()(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3);
+  bool clipBoundingBox(const osg::Vec2d& v1, const osg::Vec2d& v2, const osg::Vec2d& v3);
+  bool setupTrianglePart1(const osg::Vec2d& v1, const osg::Vec2d& v2, const osg::Vec2d& v3,
+                          double& ystart,
+                          double& ystop,
+                          double& xLeft,double& xRight,
+                          double& coefLeftY,double& coefRightY);
+  bool setupTrianglePart2(const osg::Vec2d& v1, const osg::Vec2d& v2, const osg::Vec2d& v3,
+                          double& ystart,
+                          double& ystop,
+                          double& xLeft,double& xRight,
+                          double& coefLeftY,double& coefRightY);
+  bool clipXPart(double& ystart, double& ystop,
+                 double& xLeft, double& xRight,
+                 const double& coefLeftY, const double& coefRightY);
+
+  void loopPart(double ystart,
+                double ystop,
+                double xLeft,double xRight,
+                double coefLeftY,double coefRightY,
+                GetBlocksTouchedByLine* left,
+                GetBlocksTouchedByLine* right);
+
+  void loopOnY(double ystart,
+               double ystop,
+               GetBlocksTouchedByLine* blockLeft,
+               GetBlocksTouchedByLine* blockRight);
+  void clipTriangleAgainstHeightField(const osg::Vec2d& v1, const osg::Vec2d& v2, const osg::Vec2d& v3,
+                                      std::vector<osg::Vec2d>& result);
+  void clipBottom(const std::vector<osg::Vec2d>& in, std::vector<osg::Vec2d>& out, double limit);
+  void clipTop(const std::vector<osg::Vec2d>& in, std::vector<osg::Vec2d>& out, double limit);
+  void clipRight(const std::vector<osg::Vec2d>& in, std::vector<osg::Vec2d>& out, double limit);
+  void clipLeft(const std::vector<osg::Vec2d>& in, std::vector<osg::Vec2d>& out, double limit);
+  bool setup(const osg::Vec3& v1org, const osg::Vec3& v2org, const osg::Vec3& v3org,
+             double& miny, double& maxy,
+             GetBlocksTouchedByLine*& blockLeft,
+             GetBlocksTouchedByLine*& blockRight);
+
+  void insertGeometryTo(osg::Geometry* src, osg::Geometry* dst);
+  void findGridFromPoint(const osg::Vec3d& point, osg::Vec2d& grid) {
+    osg::Vec3d corner = (point - _heightField->getOrigin());
+    grid[0] = corner[0]/_heightField->getXInterval();
+    grid[1] = corner[1]/_heightField->getYInterval();
+  }
+
+  bool isVertexInsideSquare(const osg::Vec2d& vertex, const osg::Vec2d& min, const osg::Vec2d& max) {
+    if (vertex[0] >= min[0] && vertex[0] <= max[0] &&
+        vertex[1] >= min[1] && vertex[1] <= max[1])
+      return true;
+    return false;
+  }
+//   bool isVertexInsideHeightField(const osg::Vec2d& vertex) {
+//     return isVertexInsideHeightField(vertex, osg::Vec2d(0,0), osg::Vec2d(_heightField->getNumColumns()-1, _heightField->getNumRows()-1));
+//   }
+  int isBlockAlreadyProcessed(int x, int y) const { if (_processed.find(x + y*_heightField->getNumColumns()) == _processed.end()) return 0; return _processed.find(x + y*_heightField->getNumColumns())->second;}
+  void setBlockAsProcessed(int x, int y, int type = 1) { _processed[x + y*_heightField->getNumColumns()] = type;}
+  osg::Geometry* getDestinationGeometry() { return _result.get();}
+  void setDestinationGeometry(osg::Geometry* geom) { 
+    if (!geom)
+      return;
+    _result = geom; 
+    _vertexArray = dynamic_cast<osg::Vec3Array*>(geom->getVertexArray());
+  }
+  void dumpBlock() {
+    for (std::map<int,int>::iterator it = _processed.begin(); it != _processed.end(); it++) {
+      int x;
+      int y;
+      y = it->first/_heightField->getNumColumns();
+      x = it->first - y*_heightField->getNumColumns();
+      std::cout << "  CHECK_EQUAL(" << it->second << ", isBlockAlreadyProcessed(" <<
+        x << ", " << y << "));" << std::endl;
+    }
+  }
+  void write(const std::string& file) {
+    osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+    geode->addDrawable(_result.get());
+    osgDB::writeNodeFile(*geode, file);
+  }
+};
+
+// from http://local.wasp.uwa.edu.au/~pbourke/geometry/lineline2d/
+  bool lineIntersect(const osg::Vec2d& v1, 
+                     const osg::Vec2d& v2, 
+                     const osg::Vec2d& v3, 
+                     const osg::Vec2d& v4, 
+                     osg::Vec2d& result, bool excludeBorder = false);
+
+struct less_mag : public std::binary_function<osg::Vec2d&, osg::Vec2d&, bool> 
+{
+  osg::Vec2d _from;
+  less_mag(const osg::Vec2d& from) : _from(from) {}
+
+  bool operator()(const osg::Vec2d& x, const osg::Vec2d& y) const {
+    return (x-_from).length2() < (y-_from).length2(); 
+  }
+};
+
+void projectTriangleToPlane(const osg::Vec3& sv1, const osg::Vec3& sv2, const osg::Vec3& sv3,
+                            const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3,
+                            osg::Vec3d* newTriangleOnPlane,
+                            osg::Vec3& normal);
+
+osg::Geometry* projectTriangleToTriangle(const osg::Vec3& sv1, const osg::Vec3& sv2, const osg::Vec3& sv3,
+                                         const osg::Vec3& dv1, const osg::Vec3& dv2, const osg::Vec3& dv3);
+
+double distanceLineOnPlane(const osg::Vec3d& src, const osg::Vec3d& dst, const osg::Plane& plane);
+
+void minMaxOnAxis(int axis, const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3,
+                  float& min, float& max);
+
+void projectTriangleToPlane(const osg::Vec3& sv1, const osg::Vec3& sv2, const osg::Vec3& sv3,
+                            const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3,
+                            osg::Vec3d* newTriangleOnPlane,
+                            osg::Vec3& normal);
+
+bool pointInsideTriangle2d(const osg::Vec3d& t1, const osg::Vec3d& t2, const osg::Vec3d& t3, const osg::Vec3d& vertex);
+
+
+struct ProjectVisitor : public osg::NodeVisitor
+{
+
+    struct ProjectTriangleToHeightField {
+        osg::ref_ptr<osg::HeightField> _heightField;
+        osg::ref_ptr<osg::Geometry> _result;
+        unsigned int _insert;
+
+        ProjectTriangleToHeightField() { clear();}
+        void clear() {
+            _result = new osg::Geometry;
+            _result->setVertexArray(new osg::Vec3Array);
+            _insert = 0;
+        }
+
+        bool hasGeometry() {
+            return (_result.get() && _result->getNumPrimitiveSets());
+        }
+
+        void parseLineResult(std::vector<osg::Vec2d>& buffer);
+
+        bool findGrid(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3,
+                      int& xsrc, int& ysrc,
+                      int& xdst, int& ydst);
+
+        void insertTouchedTriangles(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3);
+        void insertTouchedTriangles_1(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3);
+        void insertTouchedTriangles_2(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3);
+
+        void insertTouchedLines(const osg::Vec3d& v1, const osg::Vec3d& v2);
+        void insertTouchedPoint(const osg::Vec3d& v1);
+
+        void insertGeometryTo(osg::Geometry* src, osg::Geometry* dst);
+
+        void operator ()(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3, bool treatVertexDataAsTemporary) {
+            insertTouchedTriangles(v1,v2,v3);
+        }
+
+        void operator ()(const osg::Vec3& v1, const osg::Vec3& v2, bool treatVertexDataAsTemporary) {
+            insertTouchedLines(v1,v2);
+        }
+
+        void operator ()(const osg::Vec3& v1, bool treatVertexDataAsTemporary) {
+            insertTouchedPoint(v1);
+        }
+
+        void findGridFromPoint(const osg::Vec3d& point, osg::Vec2d& grid) {
+            osg::Vec3d corner = (point - _heightField->getOrigin());
+            grid[0] = corner[0]/_heightField->getXInterval();
+            grid[1] = corner[1]/_heightField->getYInterval();
+        }
+
+        osg::Vec3d convertGridPointInWorldSpace(const osg::Vec2d& pnt) {
+            return osg::Vec3d(_heightField->getOrigin()) + osg::Vec3d(pnt[0] * _heightField->getXInterval(), 
+                                                                      pnt[1] * _heightField->getYInterval(), 0);
+        }
+
+        osg::Vec3 projectVertexOnPlane(const osg::Vec3d& v1, const osg::Vec3d& v2, const osg::Vec3d& v3, const osg::Vec3d& vertex)
+        {
+            osg::Plane plane(v1, v2, v3);
+            const osg::Vec3d ProjectionDirection(0,0,-1);
+
+            osg::BoundingBox bb;
+            bb.expandBy(v1);
+            bb.expandBy(v2);
+            bb.expandBy(v3);
+  
+            double min, max;
+            min = bb._min[2];
+            max = bb._max[2];
+
+            osg::Vec3d src = vertex;
+            osg::Vec3d dst = src;
+            dst[2] = min - 10; // add a threshold
+            src[2] = max + 10; // add a threshold
+            double t = distanceLineOnPlane(src, dst, plane);
+            osg::Vec3d result = src + (dst-src) * t;
+            return result;
+        }
+
+        osg::Vec3d convertGridPointOnDiagonalInWorldSpaceAndProject(const osg::Vec2d& pnt) {
+            osg::Vec3d vtx[4];
+            int x = static_cast<int>(floor(pnt[0]));
+            int y = static_cast<int>(floor(pnt[1]));
+
+            // on border we take the last box because it means the vertex is on the edge
+            if (x > _heightField->getNumColumns()-2)
+                x = _heightField->getNumColumns()-2;
+            if (y > _heightField->getNumRows()-2)
+                y = _heightField->getNumRows()-2;
+
+            vtx[0] = _heightField->getVertex(x, y + 1);
+            vtx[1] = _heightField->getVertex(x, y);
+            vtx[2] = _heightField->getVertex(x + 1, y+1);
+
+            return projectVertexOnPlane(vtx[0], vtx[1], vtx[2], convertGridPointInWorldSpace(pnt));
+        }
+
+        osg::Vec3d convertGridPointInWorldSpaceAndProject(const osg::Vec2d& pnt) {
+            osg::Vec3d vtx[4];
+            int x = static_cast<int>(floor(pnt[0]));
+            int y = static_cast<int>(floor(pnt[1]));
+
+            // on border we take the last box because it means the vertex is on the edge
+            if (x > _heightField->getNumColumns()-2)
+                x = _heightField->getNumColumns()-2;
+            if (y > _heightField->getNumRows()-2)
+                y = _heightField->getNumRows()-2;
+
+            vtx[0] = _heightField->getVertex(x, y + 1);
+            vtx[1] = _heightField->getVertex(x, y);
+            vtx[2] = _heightField->getVertex(x + 1, y+1);
+
+            osg::Vec3d point2project = convertGridPointInWorldSpace(pnt);
+            if (pointInsideTriangle2d(vtx[0], vtx[1], vtx[2], point2project)) {
+                osg::Vec3d pointProjected = projectVertexOnPlane(vtx[0], vtx[1], vtx[2], point2project );
+                return pointProjected;
+            }
+
+            vtx[3] = _heightField->getVertex(x + 1, y);
+            if (pointInsideTriangle2d(vtx[1], vtx[3], vtx[2], point2project)) {
+                osg::Vec3d pointProjected = projectVertexOnPlane(vtx[1], vtx[3], vtx[2], point2project);
+                return pointProjected;
+            }
+
+            return point2project; // failed
+        }
+
+
+
+
+        bool clipLine(osg::Vec2d& startInGrid, osg::Vec2d& endInGrid);
+        osg::Vec3Array* followLine(const osg::Vec2d& startInGridOrg, const osg::Vec2d& endInGridOrg);
+
+        enum Intersection {
+            TOP = 0,
+            RIGHT = 1,
+            BOTTOM = 2,
+            LEFT = 3,
+            TOP_RIGHT,
+            TOP_LEFT,
+            NOTHING
+        };
+
+        int intersectWithSegmentOfQuad(int* currentGrid, const osg::Vec2d& startpoint, const osg::Vec2d& endpoint, osg::Vec2d& nextvertex)
+        {
+            osg::Vec2d result;
+            bool intersect = false;
+            osg::Vec2d org(currentGrid[0], currentGrid[1]);
+
+            {
+                osg::Vec2d v1(1,1);
+                osg::Vec2d v2(0,1);
+                intersect = lineIntersect(org + v1, org + v2, startpoint, endpoint, nextvertex);
+                if (intersect) {     // check if we are in a bound on the grid to avoid vertex passing through corner
+                    if ((int)floor(nextvertex[0]) - currentGrid[0] && 
+                        (int)floor(nextvertex[1]) - currentGrid[1]) {
+                        if (startpoint[0] < endpoint[0])
+                            return TOP_RIGHT;
+                        else
+                            return TOP_LEFT;
+                    }
+                    return TOP;
+                }
+            }
+
+            if (endpoint[0] - startpoint[0] >= 0 ) {
+                osg::Vec2d v1(1,1);
+                osg::Vec2d v2(1,0-1e-4);
+                intersect = lineIntersect(org + v1, org + v2, startpoint, endpoint, nextvertex);
+                if (intersect)
+                    return RIGHT;
+
+            } else {
+                osg::Vec2d v1(0,0-1e-4);
+                osg::Vec2d v2(0,1);
+                intersect = lineIntersect(org + v1, org + v2, startpoint, endpoint, nextvertex);
+                if (intersect)
+                    return LEFT;
+            }
+            return NOTHING;
+        }
+
+
+        void write(const std::string& file = "./result.osg") {
+            if (!_result->getNumPrimitiveSets())
+                return;
+            std::cout << "ProjectTriangle write to file " << file << std::endl;
+            osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+            osg::Vec4 color;
+            for (int i = 0; i < 3; i++)
+                color[i] = (1.0 * (rand() / (1.0*RAND_MAX)));
+            color[3] = 1;
+            osg::Material* mat = new osg::Material;
+            mat->setDiffuse(osg::Material::FRONT_AND_BACK, color);
+            geode->getOrCreateStateSet()->setAttributeAndModes(mat,true);
+            geode->addDrawable(_result.get());
+            osgDB::writeObjectFile(*geode, file);
+        }
+
+    };
+
+    struct ProjectTriangle : public osg::TriangleFunctor<ProjectTriangleToHeightField>
+    {
+        void init(osg::HeightField* hf) {_heightField = hf;}
+
+        virtual void drawArrays(GLenum mode,GLint first,GLsizei count)
+        {
+            if (_vertexArrayPtr==0 || count==0) return;
+
+            switch(mode)
+            {
+            case(GL_TRIANGLES):
+            {
+                const osg::Vec3* vlast = &_vertexArrayPtr[first+count];
+                for(const osg::Vec3* vptr=&_vertexArrayPtr[first];vptr<vlast;vptr+=3)
+                    this->operator()(*(vptr),*(vptr+1),*(vptr+2),_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_TRIANGLE_STRIP):
+            {
+                const osg::Vec3* vptr = &_vertexArrayPtr[first];
+                for(GLsizei i=2;i<count;++i,++vptr)
+                {
+                    if ((i%2)) this->operator()(*(vptr),*(vptr+2),*(vptr+1),_treatVertexDataAsTemporary);
+                    else       this->operator()(*(vptr),*(vptr+1),*(vptr+2),_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUADS):
+            {
+                const osg::Vec3* vptr = &_vertexArrayPtr[first];
+                for(GLsizei i=3;i<count;i+=4,vptr+=4)
+                {
+                    this->operator()(*(vptr),*(vptr+1),*(vptr+2),_treatVertexDataAsTemporary);
+                    this->operator()(*(vptr),*(vptr+2),*(vptr+3),_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUAD_STRIP):
+            {
+                const osg::Vec3* vptr = &_vertexArrayPtr[first];
+                for(GLsizei i=3;i<count;i+=2,vptr+=2)
+                {
+                    this->operator()(*(vptr),*(vptr+1),*(vptr+2),_treatVertexDataAsTemporary);
+                    this->operator()(*(vptr+1),*(vptr+3),*(vptr+2),_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POLYGON): // treat polygons as GL_TRIANGLE_FAN
+            case(GL_TRIANGLE_FAN):
+            {
+                const osg::Vec3* vfirst = &_vertexArrayPtr[first];
+                const osg::Vec3* vptr = vfirst+1;
+                for(GLsizei i=2;i<count;++i,++vptr)
+                {
+                    this->operator()(*(vfirst),*(vptr),*(vptr+1),_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POINTS):
+            {
+                const osg::Vec3* vlast = &_vertexArrayPtr[first+count];
+                for(const osg::Vec3* vptr=&_vertexArrayPtr[first];vptr<vlast;vptr++)
+                    this->operator()(*(vptr),_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINES):
+            {
+                const osg::Vec3* vlast = &_vertexArrayPtr[first+count];
+                for(const osg::Vec3* vptr=&_vertexArrayPtr[first];vptr<vlast;vptr+=2)
+                    this->operator()(*(vptr),*(vptr+1),_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_STRIP):
+            {
+                const osg::Vec3* vptr = &_vertexArrayPtr[first];
+                for(GLsizei i=0;i<count-1;i++, vptr++)
+                    this->operator()(*(vptr),*(vptr+1),_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_LOOP):
+            {
+                const osg::Vec3* vptr = &_vertexArrayPtr[first];
+                for(GLsizei i=0;i<count-1;i++, vptr++)
+                    this->operator()(*(vptr),*(vptr+1),_treatVertexDataAsTemporary);
+                this->operator()(*(vptr+(count-1)),*(vptr),_treatVertexDataAsTemporary);
+            }
+            default:
+                // can't be converted into to triangles.
+                break;
+            }
+        }
+
+        virtual void drawElements(GLenum mode,GLsizei count,const GLubyte* indices)
+        {
+            if (indices==0 || count==0) return;
+    
+            typedef const GLubyte* IndexPointer;
+    
+            switch(mode)
+            {
+            case(GL_TRIANGLES):
+            {
+                IndexPointer ilast = &indices[count];
+                for(IndexPointer  iptr=indices;iptr<ilast;iptr+=3)
+                    this->operator()(_vertexArrayPtr[*iptr],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_TRIANGLE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    if ((i%2)) this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                    else       this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUADS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=4,iptr+=4)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+3)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUAD_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=2,iptr+=2)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+3)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POLYGON): // treat polygons as GL_TRIANGLE_FAN
+            case(GL_TRIANGLE_FAN):
+            {
+                IndexPointer iptr = indices;
+                const osg::Vec3& vfirst = _vertexArrayPtr[*iptr];
+                ++iptr;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    this->operator()(vfirst,_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POINTS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINES):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i+=2,iptr+=2)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_LOOP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                this->operator()(_vertexArrayPtr[indices[count-1]],_vertexArrayPtr[indices[0]],_treatVertexDataAsTemporary);
+                break;
+            }
+            default:
+                // can't be converted into to triangles.
+                break;
+            }
+        }    
+
+        virtual void drawElements(GLenum mode,GLsizei count,const GLushort* indices)
+        {
+            if (indices==0 || count==0) return;
+    
+            typedef const GLushort* IndexPointer;
+    
+            switch(mode)
+            {
+            case(GL_TRIANGLES):
+            {
+                IndexPointer ilast = &indices[count];
+                for(IndexPointer  iptr=indices;iptr<ilast;iptr+=3)
+                {
+                    this->operator()(_vertexArrayPtr[*iptr],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }    
+                break;
+            }
+            case(GL_TRIANGLE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    if ((i%2)) this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                    else       this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUADS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=4,iptr+=4)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+3)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUAD_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=2,iptr+=2)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+3)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POLYGON): // treat polygons as GL_TRIANGLE_FAN
+            case(GL_TRIANGLE_FAN):
+            {
+                IndexPointer iptr = indices;
+                const osg::Vec3& vfirst = _vertexArrayPtr[*iptr];
+                ++iptr;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    this->operator()(vfirst,_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POINTS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_treatVertexDataAsTemporary);
+                break;
+            }
+            break;
+            case(GL_LINES):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i+=2,iptr+=2)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_LOOP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                this->operator()(_vertexArrayPtr[indices[count-1]],_vertexArrayPtr[indices[0]],_treatVertexDataAsTemporary);
+                break;
+            }
+            default:
+                // can't be converted into to triangles.
+                break;
+            }
+        }    
+
+        virtual void drawElements(GLenum mode,GLsizei count,const GLuint* indices)
+        {
+            if (indices==0 || count==0) return;
+    
+            typedef const GLuint* IndexPointer;
+    
+            switch(mode)
+            {
+            case(GL_TRIANGLES):
+            {
+                IndexPointer ilast = &indices[count];
+                for(IndexPointer  iptr=indices;iptr<ilast;iptr+=3)
+                    this->operator()(_vertexArrayPtr[*iptr],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_TRIANGLE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    if ((i%2)) this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                    else       this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUADS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=4,iptr+=4)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+2)],_vertexArrayPtr[*(iptr+3)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_QUAD_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=3;i<count;i+=2,iptr+=2)
+                {
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                    this->operator()(_vertexArrayPtr[*(iptr+1)],_vertexArrayPtr[*(iptr+3)],_vertexArrayPtr[*(iptr+2)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POLYGON): // treat polygons as GL_TRIANGLE_FAN
+            case(GL_TRIANGLE_FAN):
+            {
+                IndexPointer iptr = indices;
+                const osg::Vec3& vfirst = _vertexArrayPtr[*iptr];
+                ++iptr;
+                for(GLsizei i=2;i<count;++i,++iptr)
+                {
+                    this->operator()(vfirst,_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                }
+                break;
+            }
+            case(GL_POINTS):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_treatVertexDataAsTemporary);
+                break;
+            }
+            break;
+            case(GL_LINES):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count;i+=2,iptr+=2)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_STRIP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                break;
+            }
+            case(GL_LINE_LOOP):
+            {
+                IndexPointer iptr = indices;
+                for(GLsizei i=0;i<count-1;i++,iptr++)
+                    this->operator()(_vertexArrayPtr[*(iptr)],_vertexArrayPtr[*(iptr+1)],_treatVertexDataAsTemporary);
+                this->operator()(_vertexArrayPtr[indices[count-1]],_vertexArrayPtr[indices[0]],_treatVertexDataAsTemporary);
+                break;
+            }
+            default:
+                // can't be converted into to triangles.
+                break;
+            }
+        }
+    
+    };
+
+
+    ProjectVisitor(osg::HeightField* hf) : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN) { 
+        _projector.init(hf);
+        _index = 0;
+        _cummulatedTime = 0;
+        _writeResultOnDisk = false;
+        _clearEveryDrawable = true;
+        _smooth = true;
+        _projector.clear();
+        _mergeGeometry = false;
+    }
+
+    ~ProjectVisitor() {
+        std::cout << "total duration of process " << _cummulatedTime << std::endl;
+    }
+  
+    void mergeGeometry(bool merge) {
+        _mergeGeometry = merge;
+    }
+
+    virtual void apply(osg::Geode& node);
+
+    ProjectTriangle _projector;
+    unsigned int _index;
+    double _cummulatedTime;
+    bool _writeResultOnDisk;
+    bool _clearEveryDrawable;
+    bool _smooth;
+    bool _mergeGeometry;
+
+};
+
+#endif

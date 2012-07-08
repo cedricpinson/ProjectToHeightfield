@@ -1,0 +1,75 @@
+Geode {
+  name "polygon.shp"
+  UserData {
+    osgTerrain::Locator {
+      Format "WKT"
+      CoordinateSystem "PROJCS[\"Lambert_Conformal_Conic\",GEOGCS[\"Geographic Coordinate System\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223560493]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Lambert_Conformal_Conic\"],PARAMETER[\"scale_factor\",1],PARAMETER[\"standard_parallel_1\",30],PARAMETER[\"standard_parallel_2\",50],PARAMETER[\"central_meridian\",0],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]"
+      CoordinateSystemType PROJECTED
+      TransformScaledByResolution FALSE
+      Transform {
+        1 0 0 0
+        0 1 0 0
+        0 0 1 0
+        0 0 0 1
+      }
+    }
+  }
+  nodeMask 0xffffffff
+  cullingActive TRUE
+  num_drawables 2
+  Geometry {
+    DataVariance STATIC
+    UserData {
+      osgSim::ShapeAttributeList {
+        string "LAYER" "Unknown Area Type"
+        string "PERIMETER" "63.8 km"
+        string "ENCLOSED_A" "190 sq km"
+      }
+    }
+    useDisplayList TRUE
+    useVertexBufferObjects FALSE
+    PrimitiveSets 1
+    {
+      DrawElementsUByte TRIANGLE_FAN 5
+      {
+        0 1 2 3 4 
+      }
+    }
+    VertexArray Vec3Array 5
+    {
+      -215485 4.92038e+06 0
+      -202865 4.93567e+06 0
+      -192489 4.91842e+06 0
+      -212541 4.91996e+06 0
+      -215485 4.92038e+06 0
+    }
+  }
+  Geometry {
+    DataVariance STATIC
+    UserData {
+      osgSim::ShapeAttributeList {
+        string "LAYER" "Unknown Area Type"
+        string "PERIMETER" "78.6 km"
+        string "ENCLOSED_A" "309 sq km"
+      }
+    }
+    useDisplayList TRUE
+    useVertexBufferObjects FALSE
+    PrimitiveSets 1
+    {
+      DrawElementsUByte TRIANGLE_FAN 6
+      {
+        0 1 2 3 4 5 
+      }
+    }
+    VertexArray Vec3Array 6
+    {
+      -251662 4.93118e+06 0
+      -227264 4.93188e+06 0
+      -224880 4.92066e+06 0
+      -248857 4.9201e+06 0
+      -256009 4.92164e+06 0
+      -251662 4.93118e+06 0
+    }
+  }
+}

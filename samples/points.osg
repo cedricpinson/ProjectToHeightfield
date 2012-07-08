@@ -1,0 +1,38 @@
+Geode {
+  name "points.shp"
+  UserData {
+    osgTerrain::Locator {
+      Format "WKT"
+      CoordinateSystem "PROJCS[\"Lambert_Conformal_Conic\",GEOGCS[\"Geographic Coordinate System\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223560493]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Lambert_Conformal_Conic\"],PARAMETER[\"scale_factor\",1],PARAMETER[\"standard_parallel_1\",30],PARAMETER[\"standard_parallel_2\",50],PARAMETER[\"central_meridian\",0],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]"
+      CoordinateSystemType PROJECTED
+      TransformScaledByResolution FALSE
+      Transform {
+        1 0 0 0
+        0 1 0 0
+        0 0 1 0
+        0 0 0 1
+      }
+    }
+  }
+  nodeMask 0xffffffff
+  cullingActive TRUE
+  num_drawables 1
+  Geometry {
+    DataVariance STATIC
+    useDisplayList TRUE
+    useVertexBufferObjects FALSE
+    PrimitiveSets 1
+    {
+      DrawArrays POINTS 0 6
+    }
+    VertexArray Vec3Array 6
+    {
+      -205670 4.94814e+06 0
+      -251381 4.95768e+06 0
+      -224880 4.98012e+06 0
+      -169213 4.97955e+06 0
+      -156593 4.97142e+06 0
+      -181833 4.91323e+06 0
+    }
+  }
+}

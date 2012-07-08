@@ -1,0 +1,106 @@
+# This is a convenience module that finds all the core 
+# OpenSceneGraph components and creates some convenience variables
+# for you. This is just a wrapper around the Findosg* modules plus 
+# OpenGL, OpenThreads, and Producer. If you call this module, you 
+# don't have to call any of the others yourself. Or you are free
+# to call the other modules and not this one if you need more 
+# specific control on what is included.
+#
+# This includes the following libraries:
+# OpenGL, OpenThreads, Producer
+# osg, osgDB, osgFX, osgGA, osgIntrospection, osgParticle, 
+# osgSim, osgText, osgUtil.
+#
+# Note: This does not contain GDAL or osgTerrain because they are 
+# not considered standard components by OpenSceneGraph. I couldn't
+# think of an elegant way of handling these, so they are omitted.
+# For now, you should explicitly opt-in by using their specific
+# FindGDAL.cmake and FindosgTerrain.cmake modules.
+
+
+# This module defines
+# OPENSCENEGRAPH_INCLUDE_DIRS - all the include dirs separated by semicolons
+# OPENSCENEGRAPH_LIBRARIES - all the libraries separated by semicolons
+
+FIND_PACKAGE(OpenGL)
+FIND_PACKAGE(OpenThreads)
+
+FIND_PACKAGE(osg)
+FIND_PACKAGE(osgDB)
+FIND_PACKAGE(osgFX)
+FIND_PACKAGE(osgGA)
+FIND_PACKAGE(osgIntrospection)
+FIND_PACKAGE(osgParticle)
+FIND_PACKAGE(osgShadow)
+FIND_PACKAGE(osgSim)
+FIND_PACKAGE(osgText)
+FIND_PACKAGE(osgUtil)
+FIND_PACKAGE(osgViewer)
+FIND_PACKAGE(osgTerrain)
+
+
+IF(OPENGL_INCLUDE_DIR
+	AND OPENTHREADS_INCLUDE_DIR
+	AND OSG_INCLUDE_DIR
+	AND OSGDB_INCLUDE_DIR
+	AND OSGFX_INCLUDE_DIR
+	AND OSGGA_INCLUDE_DIR
+	AND OSGPARTICLE_INCLUDE_DIR
+	AND OSGSHADOW_INCLUDE_DIR
+	AND OSGVIEWER_INCLUDE_DIR
+	AND OSGSIM_INCLUDE_DIR
+	AND OSGTEXT_INCLUDE_DIR
+	AND OSGUTIL_INCLUDE_DIR
+	AND OSGTERRAIN_INCLUDE_DIR
+)
+	SET( OPENSCENEGRAPH_INCLUDE_DIRS "${OSGFX_INCLUDE_DIR};${OSGPARTICLE_INCLUDE_DIR};${OSGSHADOW_INCLUDE_DIR};${OSGSIM_INCLUDE_DIR};${OSGVIEWER_INCLUDE_DIR};${OSGGA_INCLUDE_DIR};${OSGINTROSPECTION_INCLUDE_DIR};${OSGTEXT_INCLUDE_DIR};${OSGDB_INCLUDE_DIR};${OSGUTIL_INCLUDE_DIR};${OSG_INCLUDE_DIR};${OPENTHREADS_INCLUDE_DIR};${OPENGL_INCLUDE_DIR}" 
+		CACHE PATH "This is a semicolon separated concatentation of osg include paths and dependencies"
+	)
+ENDIF(OPENGL_INCLUDE_DIR
+	AND OPENTHREADS_INCLUDE_DIR
+	AND OSG_INCLUDE_DIR
+	AND OSGDB_INCLUDE_DIR
+	AND OSGFX_INCLUDE_DIR
+	AND OSGGA_INCLUDE_DIR
+	AND OSGPARTICLE_INCLUDE_DIR
+	AND OSGSHADOW_INCLUDE_DIR
+	AND OSGVIEWER_INCLUDE_DIR
+	AND OSGSIM_INCLUDE_DIR
+	AND OSGTEXT_INCLUDE_DIR
+	AND OSGUTIL_INCLUDE_DIR
+	AND OSGTERRAIN_INCLUDE_DIR
+)
+
+
+IF(OPENGL_LIBRARIES
+	AND OPENTHREADS_LIBRARY
+	AND OSG_LIBRARY
+	AND OSGDB_LIBRARY
+	AND OSGFX_LIBRARY
+	AND OSGGA_LIBRARY
+	AND OSGPARTICLE_LIBRARY
+	AND OSGSHADOW_LIBRARY
+	AND OSGVIEWER_LIBRARY
+	AND OSGSIM_LIBRARY
+	AND OSGTEXT_LIBRARY
+	AND OSGUTIL_LIBRARY
+	AND OSGTERRAIN_LIBRARY
+)
+	SET( OPENSCENEGRAPH_LIBRARIES "${OSGFX_LIBRARY};${OSGPARTICLE_LIBRARY};${OSGSHADOW_LIBRARY};${OSGSIM_LIBRARY};${OSGVIEWER_LIBRARY};${OSGGA_LIBRARY};${OSGINTROSPECTION_LIBRARY};${OSGTEXT_LIBRARY};${OSGDB_LIBRARY};${OSGUTIL_LIBRARY};${OSG_LIBRARY};${OPENTHREADS_LIBRARY};${OPENGL_LIBRARIES}" 
+		CACHE PATH "This is a semicolon separated concatentation of osg libraries and dependencies"
+	)
+ENDIF(OPENGL_LIBRARIES
+	AND OPENTHREADS_LIBRARY
+	AND OSG_LIBRARY
+	AND OSGDB_LIBRARY
+	AND OSGFX_LIBRARY
+	AND OSGGA_LIBRARY
+	AND OSGPARTICLE_LIBRARY
+	AND OSGSHADOW_LIBRARY
+	AND OSGVIEWER_LIBRARY
+	AND OSGSIM_LIBRARY
+	AND OSGTEXT_LIBRARY
+	AND OSGUTIL_LIBRARY
+	AND OSGTERRAIN_LIBRARY
+)
+
