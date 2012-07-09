@@ -15,12 +15,41 @@
  * License, supplemented by the additional permissions listed below.
  *
  * Authors:
- *  Cedric Pinson <mornifle@plopbyte.net>
+ *  Cedric Pinson <cedric.pinson@plopbyte.com>
  */
 
 #include <ProjectorVisitor>
+#include <osg/CoordinateSystemNode>
 #include <osgUtil/Tessellator>
 #include <cassert>
+
+struct LatLongHeight2xyz : public osg::NodeVisitor {
+    osg::ref_ptr<osg::EllipsoidModel> _coordinates;
+
+    LatLongHeight2xyz() : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN) {
+        _coordinates = new osg::EllipsoidModel();
+    }
+    
+    void apply(osg::Geometry& geom) {
+        osg::Vec3Array* array = dynamic_cast<osg::Vec3Array*>(geom.getVertexArray());
+        if (array) {
+            for (unsigned int i = 0; i < array->size(); i++) {
+                double x,y,z;
+                double lng = (*array)[i][0];
+                double lat = (*array)[i][1];
+                _coordinates->convertLatLongHeightToXYZ(osg::DegreesToRadians(lat), osg::DegreesToRadians(lng), 0, x, y, z);
+                (*array)[i] = osg::Vec3(x,y,z);
+            }
+        }
+    }
+
+    void apply(osg::Geode& node) {
+        for (int i = 0; i < node.getNumDrawables(); i++) {
+            if (node.getDrawable(i) && node.getDrawable(i)->asGeometry())
+                apply(*(node.getDrawable(i)->asGeometry()));
+        }
+    }
+};
 
 void intersectGridLinesFromSegment(const osg::Vec2d& s0, const osg::Vec2d& s1, std::vector<osg::Vec2d>& list)
 {
@@ -291,12 +320,22 @@ void ProjectVisitor::apply(osg::Geode& node)
         node.removeDrawable(toremove[i]);
 
     for (int i = 0; i < toadd.size(); i++) {// remove only where success to project data
-        if (_smooth) {
-            osgUtil::SmoothingVisitor smooth;
-            smooth.smooth(*toadd[i]);
-        }
         node.addDrawable(toadd[i]);
     }
+
+    if (_projectToXYZ) {
+        osg::ref_ptr<LatLongHeight2xyz> visitor = new LatLongHeight2xyz();
+        node.accept(*visitor);
+    }
+
+    // smooth after project
+    if (_smooth) {
+        osgUtil::SmoothingVisitor smooth;
+        for (int i = 0; i < toadd.size(); i++) {// remove only where success to project data
+            smooth.smooth(*toadd[i]);
+        }
+    }
+
 }
 
 

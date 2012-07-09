@@ -15,7 +15,7 @@
  * License, supplemented by the additional permissions listed below.
  *
  * Authors:
- *  Cedric Pinson <cedric.pinson@plopbyte.net>
+ *  Cedric Pinson <cedric.pinson@plopbyte.com>
  */
 
 #include <osg/ArgumentParser>
@@ -64,6 +64,7 @@ static void usage( const char *prog, const char *msg )
     osg::notify(osg::NOTICE)<<"    --world w h         - use a plane world as heightfield with width and height as resolution"<< std::endl;
     osg::notify(osg::NOTICE)<<"    --tif filename      - use tif heightfield"<< std::endl;
     osg::notify(osg::NOTICE)<<"    --mergegeometry     - merge geometry projected on heightfield"<< std::endl;
+    osg::notify(osg::NOTICE)<<"    --project           - project on WSG84 after process"<< std::endl;
 }
 
 
@@ -106,6 +107,11 @@ int main(int argc, char** argv)
     bool mergeGeometry = false;
     if (arguments.read("--mergegeometry")) {
         mergeGeometry = true;
+    }
+
+    bool project = false;
+    if (arguments.read("--project")) {
+        project = true;
     }
 
     // any option left unread are converted into errors to write out later.
@@ -158,6 +164,7 @@ int main(int argc, char** argv)
 
     ProjectVisitor prj(hf);
     prj.mergeGeometry(mergeGeometry);
+    prj.projectToXYZ(project);
 
     osg::Node* node = osgDB::readNodeFile(fileNames[0]);
     node->accept(prj);

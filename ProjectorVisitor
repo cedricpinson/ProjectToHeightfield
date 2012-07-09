@@ -811,6 +811,9 @@ struct ProjectVisitor : public osg::NodeVisitor
     void mergeGeometry(bool merge) {
         _mergeGeometry = merge;
     }
+    void projectToXYZ(bool proj) {
+        _projectToXYZ = proj;
+    }
 
     virtual void apply(osg::Geode& node);
 
@@ -821,6 +824,7 @@ struct ProjectVisitor : public osg::NodeVisitor
     bool _clearEveryDrawable;
     bool _smooth;
     bool _mergeGeometry;
+    bool _projectToXYZ;
 
 };
 
